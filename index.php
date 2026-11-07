@@ -1,54 +1,122 @@
 <?php
+declare(strict_types=1);
+
 /**
- * index.php — Front Controller (router) de Biblioteca CORA
- * Flujo MVC: Navegador -> index.php -> Controller -> Model -> View
- * URL: index.php?url=controlador/accion/id   (ej: index.php?url=libros/editar/3)
+ * BIBLIOTECA CORA · Sistema Web de Gestión Bibliotecaria
+ * Front Controller + Enrutador principal
+ * PHP 8 · Arquitectura MVC · PDO · Bootstrap 5
+ * Proyecto académico SENA – ADSO
+ *
+ * Flujo:  Navegador → index.php → Controlador → Modelo (PDO) → Vista
+ * Rutas:  /controlador/metodo/parametros   (ej: /libros/editar/3)
  */
+
+/* ────────────────────────────────────────────────
+ * 1. Carga de configuración y núcleo MVC
+ * ──────────────────────────────────────────────── */
+require_once __DIR__ . '/app/config/config.php';
+require_once __DIR__ . '/app/config/database.php';
+require_once __DIR__ . '/app/core/Flash.php';
+require_once __DIR__ . '/app/core/Auth.php';
+require_once __DIR__ . '/app/core/Controller.php';
+require_once __DIR__ . '/app/helpers/helpers.php';
+
+/* Autocargador de modelos y controladores */
+spl_autoload_register(function (string $clase): void {
+    foreach (['app/models/', 'app/controllers/'] as $dir) {
+        $archivo = __DIR__ . '/' . $dir . $clase . '.php';
+        if (is_file($archivo)) {
+            require_once $archivo;
+            return;
+        }
+    }
+});
+
+/* ────────────────────────────────────────────────
+ * 2. Servidor embebido de PHP (php -S):
+ *    los archivos estáticos se sirven directamente
+ * ──────────────────────────────────────────────── */
+if (php_sapi_name() === 'cli-server') {
+    $archivo = __DIR__ . parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+    if (is_file($archivo)) {
+        return false;
+    }
+}
+
+/* ────────────────────────────────────────────────
+ * 3. Sesión segura
+ * ──────────────────────────────────────────────── */
+session_name('CORASESSION');
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
 session_start();
 
-require_once __DIR__ . '/app/config/config.php';
-require_once __DIR__ . '/app/config/helpers.php';
+/* ────────────────────────────────────────────────
+ * 4. Ruta solicitada
+ * ──────────────────────────────────────────────── */
+$ruta      = $_GET['url'] ?? ($_SERVER['PATH_INFO'] ?? '');
+$segmentos = array_values(array_filter(
+    explode('/', trim((string) $ruta, '/')),
+    fn (string $s): bool => $s !== ''
+));
 
-// Cargar modelos
-foreach (['DemoStore', 'Libro', 'Usuario', 'Prestamo'] as $m) {
-    require_once APP_PATH . '/models/' . $m . '.php';
+$controladorSlug = strtolower($segmentos[0] ?? 'dashboard');
+$metodo          = $segmentos[1] ?? 'index';
+$parametros      = array_slice($segmentos, 2);
+
+/* ────────────────────────────────────────────────
+ * 5. Tabla de rutas del sistema
+ * ──────────────────────────────────────────────── */
+$rutas = [
+    // slug => [Controlador, requiere sesión iniciada]
+    'login'        => ['AuthController', false],
+    'logout'       => ['AuthController', true],
+    'dashboard'    => ['DashboardController', true],
+    'inicio'       => ['DashboardController', true],
+    'libros'       => ['LibrosController', true],
+    'usuarios'     => ['UsuariosController', true],
+    'prestamos'    => ['PrestamosController', true],
+    'devoluciones' => ['DevolucionesController', true],
+    'reportes'     => ['ReportesController', true],
+];
+
+/* ────────────────────────────────────────────────
+ * 6. Despacho de la petición
+ * ──────────────────────────────────────────────── */
+try {
+    if (!isset($rutas[$controladorSlug])) {
+        throw new RuntimeException('Página no encontrada', 404);
+    }
+
+    [$clase, $requiereSesion] = $rutas[$controladorSlug];
+
+    /* Protección CSRF para todas las peticiones POST (RNF-02) */
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && !Auth::verifyCsrf($_POST['_token'] ?? '')) {
+        Flash::add('error', 'Token de seguridad inválido. Por favor intente de nuevo.');
+        redirect('login');
+    }
+
+    /* Control de acceso por sesión y rol (RF-01 / RNF-02) */
+    if ($requiereSesion) {
+        Auth::requireLogin();
+    } elseif ($controladorSlug === 'login' && Auth::check()) {
+        redirect('dashboard');
+    }
+
+    $controlador = new $clase();
+
+    if (!preg_match('/^[a-zA-Z][a-zA-Z0-9_]*$/', $metodo) || !method_exists($controlador, $metodo)) {
+        throw new RuntimeException('Página no encontrada', 404);
+    }
+
+    call_user_func_array([$controlador, $metodo], $parametros);
+
+} catch (Throwable $e) {
+    http_response_code($e->getCode() === 404 ? 404 : 500);
+    error_log('[CORA] ' . $e->getMessage());
+    require __DIR__ . '/app/views/errors/404.php';
 }
-require_once APP_PATH . '/controllers/BaseController.php';
-require_once APP_PATH . '/controllers/ErrorController.php';
-
-// ---- Interpretar la URL ----
-$partes = explode('/', trim($_GET['url'] ?? '', '/'));
-$controlador = $partes[0] !== '' ? strtolower($partes[0]) : (esta_logueado() ? 'dashboard' : 'auth');
-$accion      = $partes[1] ?? 'index';
-$parametro   = $partes[2] ?? null;
-
-// Rutas públicas (no requieren sesión)
-$publicas = ['auth'];
-if (!in_array($controlador, $publicas, true) && !esta_logueado()) {
-    redirigir('auth/login');
-}
-
-// Protección CSRF para todos los POST
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valido()) {
-    flash('error', 'La sesión del formulario expiró. Intenta de nuevo.');
-    redirigir($controlador === 'auth' ? 'auth/login' : 'dashboard');
-}
-
-// ---- Despachar al controlador ----
-$clase   = ucfirst($controlador) . 'Controller';
-$archivo = APP_PATH . '/controllers/' . $clase . '.php';
-
-if (!preg_match('/^[a-z]+$/', $controlador) || !is_file($archivo)) {
-    (new ErrorController())->noEncontrado();
-    exit;
-}
-
-require_once $archivo;
-$obj = new $clase();
-
-if (!preg_match('/^[a-zA-Z]+$/', $accion) || !method_exists($obj, $accion)) {
-    (new ErrorController())->noEncontrado();
-    exit;
-}
-
-$obj->$accion($parametro);

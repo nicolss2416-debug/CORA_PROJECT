@@ -1,0 +1,20 @@
+# ─────────────────────────────────────────────
+# Biblioteca CORA · Reescritura de URLs (Apache / XAMPP)
+# ─────────────────────────────────────────────
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Ajuste esta línea si mueve la carpeta del proyecto:
+    RewriteBase /CORA_PROJECT/CORA_PROJECT/
+
+    # Los archivos y carpetas existentes se sirven directamente
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php?url=$1 [QSA,L]
+</IfModule>
+
+# Bloquear acceso web a archivos sensibles
+<FilesMatch "\.(sql|log|md|ini)$">
+    Require all denied
+</FilesMatch>

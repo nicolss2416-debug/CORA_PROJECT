@@ -1,21 +1,40 @@
-<header class="cora-topbar">
-    <button class="btn btn-light d-lg-none" id="abrirMenu" aria-label="Abrir menú"><i class="bi bi-list fs-5"></i></button>
-
-    <form class="cora-search" action="<?= BASE_URL ?>index.php" method="get" role="search">
-        <input type="hidden" name="url" value="libros">
-        <i class="bi bi-search"></i>
-        <input type="search" name="q" class="form-control" placeholder="Buscar libros..." aria-label="Buscar libros">
-    </form>
-
-    <div class="dropdown ms-auto">
-        <button class="btn cora-user dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-            <span class="avatar"><?= e(mb_strtoupper(mb_substr(usuario_actual()['nombre'] ?? '?', 0, 1))) ?></span>
-            <span class="d-none d-sm-inline"><?= e(usuario_actual()['nombre'] ?? '') ?></span>
+<?php
+/** Layout · Barra superior: menú móvil, título y menú de usuario */
+?>
+<header class="cora-topbar no-print">
+    <div class="d-flex align-items-center gap-3">
+        <button class="cora-burger" id="sidebarToggle" type="button" aria-label="Abrir menú" aria-controls="coraSidebar" aria-expanded="false">
+            <i class="bi bi-list"></i>
         </button>
-        <ul class="dropdown-menu dropdown-menu-end">
-            <li><span class="dropdown-item-text small text-muted"><?= e(usuario_actual()['rol'] ?? '') ?></span></li>
+        <div>
+            <h2 class="cora-page-title"><?= e($pageTitle ?? 'Panel') ?></h2>
+            <p class="cora-page-sub mb-0"><?= e(fecha_larga_es()) ?></p>
+        </div>
+    </div>
+
+    <div class="dropdown">
+        <button class="cora-user-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <span class="cora-avatar"><?= e(iniciales(Auth::user()['nombre'] ?? '', Auth::user()['apellido'] ?? '')) ?></span>
+            <span class="cora-user-text d-none d-sm-flex flex-column text-start">
+                <strong><?= e(Auth::nombre()) ?></strong>
+                <small><?= e(Auth::rol()) ?></small>
+            </span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+            <li class="dropdown-item-text">
+                <strong><?= e(Auth::nombre()) ?></strong><br>
+                <small class="text-muted"><?= e(Auth::user()['email'] ?? '') ?></small>
+                <div class="mt-1"><?= badge_rol(Auth::rol()) ?></div>
+            </li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="<?= url('auth/logout') ?>"><i class="bi bi-box-arrow-left me-2"></i>Cerrar sesión</a></li>
+            <li>
+                <form method="post" action="<?= e(url('logout')) ?>">
+                    <?= csrf_field() ?>
+                    <button type="submit" class="dropdown-item text-danger">
+                        <i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión
+                    </button>
+                </form>
+            </li>
         </ul>
     </div>
 </header>

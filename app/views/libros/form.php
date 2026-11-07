@@ -1,54 +1,105 @@
 <?php
-// Valor del campo: primero lo que escribió antes (si hubo error), luego el del libro, luego vacío
-$v = fn(string $c) => isset($_SESSION['viejo']) ? viejo($c) : e($libro[$c] ?? '');
-?>
-<div class="d-flex align-items-center mb-3">
-    <a href="<?= url('libros') ?>" class="btn btn-icon me-2" aria-label="Volver"><i class="bi bi-arrow-left"></i></a>
-    <h1 class="h4 mb-0"><?= e($titulo) ?></h1>
-</div>
+/** Vista · Formulario de libro (crear / editar) — RF-06 y RF-09
+ *  $modo: 'crear' | 'editar'   ·   $libro: array o null */
 
-<div class="cora-card">
-    <form action="<?= url($accion) ?>" method="post" class="needs-validation" novalidate>
-        <?= csrf_campo() ?>
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label for="titulo" class="form-label">Título <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" id="titulo" name="titulo" value="<?= $v('titulo') ?>" placeholder="Ingrese el título" required minlength="2" maxlength="150">
-                <div class="invalid-feedback">El título es obligatorio.</div>
+$esEditar  = $modo === 'editar';
+$accion    = $esEditar ? url('libros/actualizar/' . $libro['id']) : url('libros/guardar');
+$valor     = fn (string $campo, $defecto = '') => old($campo, $esEditar ? ($libro[$campo] ?? $defecto) : $defecto);
+$valorInt  = fn (string $campo, int $defecto = 0) => (int) old($campo, $esEditar ? ($libro[$campo] ?? $defecto) : $defecto);
+?>
+<div class="row justify-content-center">
+    <div class="col-12 col-xl-9">
+        <nav aria-label="breadcrumb" class="mb-3">
+            <ol class="breadcrumb cora-breadcrumb">
+                <li class="breadcrumb-item"><a href="<?= e(url('libros')) ?>">Libros</a></li>
+                <li class="breadcrumb-item active" aria-current="page"><?= $esEditar ? 'Editar' : 'Registrar' ?></li>
+            </ol>
+        </nav>
+
+        <form method="post" action="<?= e($accion) ?>" novalidate>
+            <?= csrf_field() ?>
+            <div class="cora-card">
+                <div class="cora-card-header">
+                    <h5>
+                        <i class="bi <?= $esEditar ? 'bi-pencil-square' : 'bi-plus-circle' ?> me-2"></i>
+                        <?= $esEditar ? 'Editar información del libro' : 'Registrar nuevo libro' ?>
+                    </h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label for="titulo" class="form-label cora-form-label">Título <span class="cora-req">*</span></label>
+                            <input type="text" class="form-control" id="titulo" name="titulo" required
+                                   value="<?= e($valor('titulo')) ?>" placeholder="Ej: Cien años de soledad" maxlength="150">
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label for="autor" class="form-label cora-form-label">Autor <span class="cora-req">*</span></label>
+                            <input type="text" class="form-control" id="autor" name="autor" required
+                                   value="<?= e($valor('autor')) ?>" placeholder="Ej: Gabriel García Márquez" maxlength="120">
+                        </div>
+
+                        <div class="col-6 col-md-6">
+                            <label for="categoria_id" class="form-label cora-form-label">Categoría <span class="cora-req">*</span></label>
+                            <select class="form-select" id="categoria_id" name="categoria_id" required>
+                                <option value="">Seleccione…</option>
+                                <?php foreach ($categorias as $categoria): ?>
+                                    <option value="<?= (int) $categoria['id'] ?>"
+                                        <?= $valorInt('categoria_id') === (int) $categoria['id'] ? 'selected' : '' ?>>
+                                        <?= e($categoria['nombre']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="col-6 col-md-4">
+                            <label for="isbn" class="form-label cora-form-label">ISBN <span class="cora-req">*</span></label>
+                            <input type="text" class="form-control" id="isbn" name="isbn" required
+                                   value="<?= e($valor('isbn')) ?>" placeholder="978-0-13-235088-4" maxlength="20">
+                        </div>
+
+                        <div class="col-6 col-md-4">
+                            <label for="anio_publicacion" class="form-label cora-form-label">Año de publicación</label>
+                            <input type="number" class="form-control" id="anio_publicacion" name="anio_publicacion" min="1000"
+                                   max="<?= (int) date('Y') ?>" value="<?= e($valor('anio_publicacion')) ?>" placeholder="<?= (int) date('Y') - 5 ?>">
+                        </div>
+
+                        <div class="col-6 col-md-4">
+                            <label for="cantidad_total" class="form-label cora-form-label">Cantidad de ejemplares <span class="cora-req">*</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text cora-input-icon"><i class="bi bi-stack"></i></span>
+                                <input type="number" class="form-control" id="cantidad_total" name="cantidad_total"
+                                       min="1" max="999" required value="<?= $valorInt('cantidad_total', 1) ?: 1 ?>">
+                            </div>
+                            <?php if ($esEditar): ?>
+                                <small class="text-muted">
+                                    Prestados actualmente: <?= (int) $libro['cantidad_total'] - (int) $libro['cantidad_disponible'] ?>
+                                </small>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="editorial" class="form-label cora-form-label">Editorial</label>
+                            <input type="text" class="form-control" id="editorial" name="editorial"
+                                   value="<?= e($valor('editorial')) ?>" placeholder="Ej: Sudamericana" maxlength="100">
+                        </div>
+
+                        <div class="col-12">
+                            <label for="sinopsis" class="form-label cora-form-label">Sinopsis</label>
+                            <textarea class="form-control" id="sinopsis" name="sinopsis" rows="4"
+                                      placeholder="Breve resumen del contenido del libro…"><?= e($valor('sinopsis')) ?></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="cora-card-footer">
+                    <a href="<?= e(url('libros')) ?>" class="btn cora-btn-ghost-primary">
+                        <i class="bi bi-arrow-left me-1"></i>Cancelar
+                    </a>
+                    <button type="submit" class="btn cora-btn-primary">
+                        <i class="bi bi-check-lg me-1"></i><?= $esEditar ? 'Guardar cambios' : 'Registrar libro' ?>
+                    </button>
+                </div>
             </div>
-            <div class="col-md-6">
-                <label for="autor" class="form-label">Autor <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" id="autor" name="autor" value="<?= $v('autor') ?>" placeholder="Ingrese el autor" required minlength="2" maxlength="120">
-                <div class="invalid-feedback">El autor es obligatorio.</div>
-            </div>
-            <div class="col-md-6">
-                <label for="categoria" class="form-label">Categoría <span class="text-danger">*</span></label>
-                <select class="form-select" id="categoria" name="categoria" required>
-                    <option value="">Seleccione categoría</option>
-                    <?php foreach ($categorias as $c): ?>
-                        <option <?= $v('categoria') === e($c) ? 'selected' : '' ?>><?= e($c) ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <div class="invalid-feedback">Selecciona una categoría.</div>
-            </div>
-            <div class="col-md-6">
-                <label for="isbn" class="form-label">ISBN <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" id="isbn" name="isbn" value="<?= $v('isbn') ?>" placeholder="Ingrese el ISBN" required pattern="[0-9\-Xx]{10,17}">
-                <div class="invalid-feedback">Ingresa un ISBN válido (10 a 17 caracteres, números y guiones).</div>
-            </div>
-            <div class="col-md-6">
-                <label for="ejemplares" class="form-label">Cantidad de ejemplares <span class="text-danger">*</span></label>
-                <input type="number" class="form-control" id="ejemplares" name="ejemplares" value="<?= $v('ejemplares') ?>" placeholder="Ingrese la cantidad" required min="1" max="999">
-                <div class="invalid-feedback">Ingresa una cantidad mayor a 0.</div>
-            </div>
-            <div class="col-12">
-                <label for="descripcion" class="form-label">Descripción</label>
-                <textarea class="form-control" id="descripcion" name="descripcion" rows="3" maxlength="500" placeholder="Breve descripción del libro"><?= $v('descripcion') ?></textarea>
-            </div>
-        </div>
-        <div class="d-flex gap-2 mt-4">
-            <button type="submit" class="btn btn-cora">Guardar</button>
-            <a href="<?= url('libros') ?>" class="btn btn-outline-cora">Cancelar</a>
-        </div>
-    </form>
+        </form>
+    </div>
 </div>

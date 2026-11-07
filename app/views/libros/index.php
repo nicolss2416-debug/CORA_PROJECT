@@ -1,77 +1,123 @@
-<?php $puedeGestionar = tiene_rol('Administrador', 'Bibliotecario'); ?>
-<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-    <h1 class="h4 mb-0"><?= tiene_rol('Lector') ? 'Catálogo' : 'Libros' ?></h1>
-    <?php if ($puedeGestionar): ?>
-        <a href="<?= url('libros/crear') ?>" class="btn btn-cora ms-auto"><i class="bi bi-plus-lg"></i> Nuevo libro</a>
+<?php
+/** Vista · Catálogo de libros: búsqueda, filtros, paginación y acciones (módulos 4 y 6) */
+?>
+<!-- Encabezado + acción principal -->
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <p class="text-muted mb-0">
+        <i class="bi bi-bookshelf me-1"></i>
+        <?= $totalRegistros ?> libro<?= $totalRegistros === 1 ? '' : 's' ?> en el catálogo
+    </p>
+    <?php if ($puedeCrear): ?>
+        <a href="<?= e(url('libros/crear')) ?>" class="btn cora-btn-primary">
+            <i class="bi bi-plus-lg me-1"></i> Registrar libro
+        </a>
     <?php endif; ?>
 </div>
 
-<form class="row g-2 mb-3" method="get" action="<?= BASE_URL ?>index.php">
-    <input type="hidden" name="url" value="libros">
-    <div class="col-12 col-md-8">
-        <input type="search" name="q" value="<?= e($q) ?>" class="form-control" placeholder="Buscar por título, autor o categoría...">
-    </div>
-    <div class="col-8 col-md-3">
-        <select name="categoria" class="form-select" aria-label="Filtrar por categoría">
-            <option value="">Todas las categorías</option>
-            <?php foreach ($categorias as $c): ?>
-                <option <?= $categoria === $c ? 'selected' : '' ?>><?= e($c) ?></option>
-            <?php endforeach; ?>
-        </select>
-    </div>
-    <div class="col-4 col-md-1 d-grid"><button class="btn btn-outline-cora">Buscar</button></div>
-</form>
-
-<?php if (!$libros): ?>
-    <div class="cora-card text-center text-muted py-5">
-        <i class="bi bi-search fs-1"></i>
-        <p class="mb-0 mt-2">No se encontraron libros con ese criterio.</p>
-    </div>
-<?php else: ?>
-<div class="cora-card p-0">
-    <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0 tabla-libros">
-            <thead>
-            <tr>
-                <th>Portada</th><th>Título</th><th class="d-none d-md-table-cell">Autor</th>
-                <th class="d-none d-lg-table-cell">Categoría</th><th>Disponibilidad</th>
-                <th class="text-end">Acciones</th>
-            </tr>
-            </thead>
-            <tbody>
-            <?php foreach ($libros as $l): ?>
-                <tr>
-                    <td><?php $libro = $l; $mini = true; require APP_PATH . '/views/libros/_portada.php'; ?></td>
-                    <td>
-                        <a class="fw-medium text-decoration-none" href="<?= url('libros/ver/' . $l['id']) ?>"><?= e($l['titulo']) ?></a>
-                        <div class="small text-muted d-md-none"><?= e($l['autor']) ?></div>
-                    </td>
-                    <td class="d-none d-md-table-cell"><?= e($l['autor']) ?></td>
-                    <td class="d-none d-lg-table-cell"><?= e($l['categoria']) ?></td>
-                    <td>
-                        <?php if ($l['disponibles'] > 0): ?>
-                            <span class="badge badge-ok">Disponible (<?= $l['disponibles'] ?>)</span>
-                        <?php else: ?>
-                            <span class="badge badge-bad">Prestado</span>
-                        <?php endif; ?>
-                    </td>
-                    <td class="text-end text-nowrap">
-                        <a href="<?= url('libros/ver/' . $l['id']) ?>" class="btn btn-sm btn-icon" title="Ver detalle"><i class="bi bi-eye"></i></a>
-                        <?php if ($puedeGestionar): ?>
-                            <a href="<?= url('libros/editar/' . $l['id']) ?>" class="btn btn-sm btn-icon" title="Editar"><i class="bi bi-pencil"></i></a>
-                        <?php endif; ?>
-                        <?php if (tiene_rol('Administrador')): ?>
-                            <form action="<?= url('libros/eliminar/' . $l['id']) ?>" method="post" class="d-inline form-eliminar" data-nombre="<?= e($l['titulo']) ?>">
-                                <?= csrf_campo() ?>
-                                <button class="btn btn-sm btn-icon text-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
-                            </form>
-                        <?php endif; ?>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-    </div>
+<!-- Filtros de búsqueda (RF-08) -->
+<div class="cora-card mb-3">
+    <form method="get" action="<?= e(url('libros')) ?>" class="row g-2 align-items-end">
+        <div class="col-12 col-md-5">
+            <label class="form-label cora-form-label" for="q">Buscar</label>
+            <div class="input-group">
+                <span class="input-group-text cora-input-icon"><i class="bi bi-search"></i></span>
+                <input type="text" class="form-control" id="q" name="q"
+                       value="<?= e($filtros['q']) ?>" placeholder="Título, autor o ISBN…">
+            </div>
+        </div>
+        <div class="col-6 col-md-4">
+            <label class="form-label cora-form-label" for="categoria_id">Categoría</label>
+            <select class="form-select" id="categoria_id" name="categoria_id">
+                <option value="0">Todas las categorías</option>
+                <?php foreach ($categorias as $categoria): ?>
+                    <option value="<?= (int) $categoria['id'] ?>"
+                        <?= (int) $filtros['categoria_id'] === (int) $categoria['id'] ? 'selected' : '' ?>>
+                        <?= e($categoria['nombre']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-6 col-md-3 d-flex gap-2">
+            <button type="submit" class="btn cora-btn-primary flex-fill">
+                <i class="bi bi-funnel me-1"></i>Filtrar
+            </button>
+            <a href="<?= e(url('libros')) ?>" class="btn cora-btn-ghost-acento" title="Limpiar filtros">
+                <i class="bi bi-x-lg"></i>
+            </a>
+        </div>
+    </form>
 </div>
-<p class="small text-muted mt-2"><?= count($libros) ?> libro(s) encontrado(s)</p>
-<?php endif; ?>
+
+<!-- Listado -->
+<div class="cora-card">
+    <?php if (!$libros): ?>
+        <div class="cora-empty">
+            <i class="bi bi-book"></i>
+            <p>No se encontraron libros con ese criterio de búsqueda.</p>
+            <a href="<?= e(url('libros')) ?>" class="btn btn-sm cora-btn-ghost-primary">Ver todo el catálogo</a>
+        </div>
+    <?php else: ?>
+        <div class="table-responsive">
+            <table class="table cora-table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="min-width:220px">Título</th>
+                        <th class="d-none d-md-table-cell">Autor</th>
+                        <th class="d-none d-lg-table-cell">Categoría</th>
+                        <th class="d-none d-lg-table-cell">ISBN</th>
+                        <th class="text-center">Ejemplares</th>
+                        <th class="text-center" style="width:170px">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($libros as $libro): ?>
+                        <tr>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <?= portada_libro($libro, 'cora-thumb') ?>
+                                    <div class="ms-1">
+                                        <a href="<?= e(url('libros/detalle/' . $libro['id'])) ?>" class="cora-book-title">
+                                            <?= e($libro['titulo']) ?>
+                                        </a>
+                                        <small class="d-md-none d-block text-muted"><?= e($libro['autor']) ?></small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="d-none d-md-table-cell"><?= e($libro['autor']) ?></td>
+                            <td class="d-none d-lg-table-cell"><span class="cora-chip"><?= e($libro['categoria']) ?></span></td>
+                            <td class="d-none d-lg-table-cell"><code class="cora-code"><?= e($libro['isbn']) ?></code></td>
+                            <td class="text-center">
+                                <div class="fw-medium"><?= (int) $libro['cantidad_disponible'] ?> / <?= (int) $libro['cantidad_total'] ?></div>
+                                <?= badge_disponibilidad((int) $libro['cantidad_disponible']) ?>
+                            </td>
+                            <td>
+                                <div class="d-flex justify-content-center gap-1">
+                                    <a href="<?= e(url('libros/detalle/' . $libro['id'])) ?>"
+                                       class="cora-action cora-action-ver" title="Ver ficha del libro">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <?php if ($puedeCrear): ?>
+                                        <a href="<?= e(url('libros/editar/' . $libro['id'])) ?>"
+                                           class="cora-action cora-action-editar" title="Editar libro">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <form method="post" action="<?= e(url('libros/eliminar/' . $libro['id'])) ?>"
+                                              data-confirm="¿Eliminar el libro «<?= e($libro['titulo']) ?>» del catálogo? Esta acción no se puede deshacer.">
+                                            <?= csrf_field() ?>
+                                            <button type="submit" class="cora-action cora-action-eliminar" title="Eliminar libro">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <div class="px-3 pb-3 pt-3">
+            <?= paginacion($pagina, $totalPaginas, ['q' => $filtros['q'], 'categoria_id' => $filtros['categoria_id']]) ?>
+        </div>
+    <?php endif; ?>
+</div>

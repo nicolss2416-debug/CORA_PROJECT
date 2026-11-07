@@ -1,26 +1,54 @@
 <?php
-/** Devoluciones — RF-11 · RN-03 */
-class DevolucionesController extends BaseController
+declare(strict_types=1);
+
+/**
+ * BIBLIOTECA CORA · Controlador de devoluciones
+ * RF-11 Registrar devolución · RN-03: estado → Devuelto + devuelve el ejemplar
+ * Identifica préstamos activos y vencidos pendientes de devolución.
+ */
+
+final class DevolucionesController extends Controller
 {
+    /** GET /devoluciones · Préstamos pendientes (activos y vencidos) */
     public function index(): void
     {
-        $this->requerirRol('Administrador', 'Bibliotecario');
-        layout('devoluciones/index', [
-            'titulo'     => 'Devoluciones',
-            'pendientes' => Prestamo::pendientes(),
+        Auth::requireRole(['Administrador', 'Bibliotecario'], 'Solo el personal de la biblioteca puede gestionar devoluciones.');
+
+        $q      = trim($_GET['q'] ?? '');
+        $pagina = max(1, (int) ($_GET['pagina'] ?? 1));
+
+        $modelo = Prestamo::instancia();
+        $total  = $modelo->contar('Pendiente', $q);
+
+        $pendientes = $modelo->pendientes($q, $pagina);
+
+        $this->view('devoluciones/index', [
+            'pageTitle'      => 'Devoluciones',
+            'prestamos'      => $pendientes,
+            'filtros'        => ['q' => $q],
+            'pagina'         => $pagina,
+            'totalPaginas'   => (int) ceil($total / REGISTROS_POR_PAGINA),
+            'totalRegistros' => $total,
+            'contadores'     => $modelo->contadores(),
         ]);
     }
 
-    public function registrar($id = null): void
+    /** POST /devoluciones/registrar · Aplica la RN-03 sobre el préstamo indicado */
+    public function registrar(): void
     {
-        $this->requerirRol('Administrador', 'Bibliotecario');
-        if (!$this->esPost()) redirigir('devoluciones');
+        Auth::requireRole(['Administrador', 'Bibliotecario']);
 
-        if (Prestamo::devolver((int) $id)) {
-            flash('success', 'La devolución se registró correctamente.');
-        } else {
-            flash('warning', 'Ese préstamo ya fue devuelto o no existe.');
+        $prestamoId = (int) ($_POST['prestamo_id'] ?? 0);
+        $observaciones = trim($_POST['observaciones'] ?? '');
+
+        if ($prestamoId <= 0) {
+            Flash::error('Debe indicar el préstamo a devolver.');
+            redirect('devoluciones');
         }
-        redirigir('devoluciones');
+
+        [$ok, $mensaje] = Prestamo::instancia()->devolver($prestamoId, $observaciones);
+
+        $ok ? Flash::success($mensaje) : Flash::error($mensaje);   // RN-03: incluye anti doble devolución
+        redirect('devoluciones');
     }
 }

@@ -1,17 +1,20 @@
 <?php
-// Mensajes flash: error / warning / info / success (pantalla 10 del diseño)
+/** Layout · Mensajes de estado (módulo 10): éxito, error, advertencia, información */
+
 $estilos = [
-    'error'   => ['danger',  'bi-x-circle-fill',            'Error'],
-    'warning' => ['warning', 'bi-exclamation-triangle-fill', 'Advertencia'],
-    'info'    => ['info',    'bi-info-circle-fill',          'Información'],
-    'success' => ['success', 'bi-check-circle-fill',         'Éxito'],
+    'exito'       => ['clase' => 'success',   'icono' => 'bi-check-circle-fill'],
+    'error'       => ['clase' => 'danger',    'icono' => 'bi-x-octagon-fill'],
+    'advertencia' => ['clase' => 'warning',   'icono' => 'bi-exclamation-triangle-fill'],
+    'informacion' => ['clase' => 'info',      'icono' => 'bi-info-circle-fill'],
 ];
-foreach (flash_obtener() as $m):
-    [$clase, $icono, $rotulo] = $estilos[$m['tipo']] ?? $estilos['info'];
 ?>
-    <div class="alert alert-<?= $clase ?> cora-alert alert-dismissible fade show" role="alert">
-        <i class="bi <?= $icono ?>"></i>
-        <div><strong><?= $rotulo ?></strong><br><?= e($m['mensaje']) ?></div>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-    </div>
-<?php endforeach; ?>
+<div class="cora-alerts no-print" aria-live="polite">
+    <?php foreach (Flash::all() as $mensaje): ?>
+        <?php $estilo = $estilos[$mensaje['tipo']] ?? $estilos['informacion']; ?>
+        <div class="alert cora-alert alert-<?= $estilo['clase'] ?> alert-dismissible fade show" role="alert">
+            <i class="bi <?= $estilo['icono'] ?> me-2"></i>
+            <?= e($mensaje['mensaje']) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+        </div>
+    <?php endforeach; ?>
+</div>

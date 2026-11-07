@@ -1,84 +1,180 @@
 <?php
-/** Modelo Usuario — RF-01, RF-03, RF-04, RF-05 */
-class Usuario
+declare(strict_types=1);
+
+/**
+ * BIBLIOTECA CORA · Modelo Usuario (RF-03, RF-04, RF-05)
+ * Acceso a datos mediante PDO con consultas preparadas.
+ */
+
+final class Usuario
 {
-    public const ROLES = ['Administrador', 'Bibliotecario', 'Lector'];
-
-    public static function autenticar(string $correo, string $clave): ?array
+    public function __construct(private PDO $db)
     {
-        foreach (DemoStore::tabla('usuarios') as $u) {
-            if (strcasecmp($u['correo'], $correo) === 0 && $u['estado'] === 'Activo' && password_verify($clave, $u['clave'])) {
-                return $u;
-            }
+    }
+
+    public static function instancia(): self
+    {
+        return new self(Database::getConnection());
+    }
+
+    /**
+     * Listado con búsqueda y filtros (RF-04).
+     *
+     * @param string $q     Búsqueda por nombre, apellido o correo
+     * @param string $rol   Rol exacto o '' para todos
+     * @param string $estado Estado exacto o '' para todos
+     */
+    public function buscarTodos(string $q = '', string $rol = '', string $estado = '', int $pagina = 1, int $porPagina = REGISTROS_POR_PAGINA): array
+    {
+        [$where, $params] = $this->filtros($q, $rol, $estado);
+        $offset = max(0, ($pagina - 1) * $porPagina);
+
+        $sql = 'SELECT id, nombre, apellido, email, telefono, rol, estado, fecha_registro
+                FROM usuarios ' . $where . '
+                ORDER BY fecha_registro DESC, id DESC
+                LIMIT :limite OFFSET :offset';
+
+        $stmt = $this->db->prepare($sql);
+        foreach ($params as $k => $v) {
+            $stmt->bindValue($k, $v);
         }
-        return null;
+        $stmt->bindValue(':limite', $porPagina, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
     }
 
-    public static function todos(string $q = ''): array
+    /** Total de registros según los mismos filtros (paginación) */
+    public function contar(string $q = '', string $rol = '', string $estado = ''): int
     {
-        $q = mb_strtolower(trim($q));
-        return array_values(array_filter(DemoStore::tabla('usuarios'), function ($u) use ($q) {
-            return $q === '' || str_contains(mb_strtolower($u['nombre'] . ' ' . $u['documento'] . ' ' . $u['correo']), $q);
-        }));
+        [$where, $params] = $this->filtros($q, $rol, $estado);
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM usuarios ' . $where);
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn();
     }
 
-    public static function lectoresActivos(): array
+    /** Contadores para el dashboard */
+    public function contarTodos(bool $soloActivos = false): int
     {
-        return array_values(array_filter(DemoStore::tabla('usuarios'), fn($u) => $u['rol'] === 'Lector' && $u['estado'] === 'Activo'));
+        $sql    = 'SELECT COUNT(*) FROM usuarios' . ($soloActivos ? " WHERE estado = 'Activo'" : '');
+        return (int) $this->db->query($sql)->fetchColumn();
     }
 
-    public static function buscar(int $id): ?array
+    public function buscarPorId(int $id): ?array
     {
-        foreach (DemoStore::tabla('usuarios') as $u) {
-            if ($u['id'] === $id) return $u;
-        }
-        return null;
+        $stmt = $this->db->prepare('SELECT id, nombre, apellido, email, telefono, rol, estado, fecha_registro FROM usuarios WHERE id = ?');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
     }
 
-    public static function validar(array $d, ?int $idActual = null): array
+    public function buscarPorEmail(string $email): ?array
     {
-        $errores = [];
-        if (mb_strlen(trim($d['nombre'] ?? '')) < 3) $errores[] = 'El nombre es obligatorio (mínimo 3 caracteres).';
-        if (!preg_match('/^[0-9]{6,12}$/', trim($d['documento'] ?? ''))) $errores[] = 'El documento debe tener entre 6 y 12 dígitos.';
-        if (!filter_var($d['correo'] ?? '', FILTER_VALIDATE_EMAIL)) $errores[] = 'Ingresa un correo válido.';
-        if (!in_array($d['rol'] ?? '', self::ROLES, true)) $errores[] = 'Selecciona un rol válido.';
-        if ($idActual === null && strlen($d['clave'] ?? '') < 6) $errores[] = 'La contraseña debe tener mínimo 6 caracteres.';
-        foreach (DemoStore::tabla('usuarios') as $u) {
-            if ($u['id'] !== $idActual && strcasecmp($u['correo'], trim($d['correo'] ?? '')) === 0) $errores[] = 'Ya existe un usuario con ese correo.';
-            if ($u['id'] !== $idActual && $u['documento'] === trim($d['documento'] ?? '')) $errores[] = 'Ya existe un usuario con ese documento.';
-        }
-        return $errores;
+        $stmt = $this->db->prepare('SELECT id, email FROM usuarios WHERE email = ?');
+        $stmt->execute([$email]);
+        return $stmt->fetch() ?: null;
     }
 
-    public static function crear(array $d): void
+    /** Usuarios activos para el formulario de préstamo (RN-02) */
+    public function activosParaPrestamo(): array
     {
-        $t = &DemoStore::tabla('usuarios');
-        $t[] = [
-            'id' => DemoStore::siguienteId('usuarios'),
-            'nombre' => trim($d['nombre']), 'documento' => trim($d['documento']),
-            'correo' => trim($d['correo']), 'clave' => password_hash($d['clave'], PASSWORD_DEFAULT),
-            'rol' => $d['rol'], 'estado' => 'Activo',
+        return $this->db->query(
+            "SELECT id, nombre, apellido, email, rol
+             FROM usuarios
+             WHERE estado = 'Activo'
+             ORDER BY nombre, apellido"
+        )->fetchAll();
+    }
+
+    /** RF-03 · Registra un usuario (la contraseña llega cifrada) */
+    public function crear(array $datos, string $hash): int
+    {
+        $stmt = $this->db->prepare(
+            'INSERT INTO usuarios (nombre, apellido, email, telefono, password, rol, estado)
+             VALUES (:nombre, :apellido, :email, :telefono, :password, :rol, :estado)'
+        );
+        $stmt->execute([
+            ':nombre'   => $datos['nombre'],
+            ':apellido' => $datos['apellido'],
+            ':email'    => $datos['email'],
+            ':telefono' => $datos['telefono'] ?: null,
+            ':password' => $hash,
+            ':rol'      => $datos['rol'],
+            ':estado'   => $datos['estado'],
+        ]);
+        return (int) $this->db->lastInsertId();
+    }
+
+    /** RF-05 · Actualiza los datos de un usuario */
+    public function actualizar(int $id, array $datos, ?string $hash = null): bool
+    {
+        $sql = 'UPDATE usuarios
+                SET nombre = :nombre, apellido = :apellido, email = :email,
+                    telefono = :telefono, rol = :rol, estado = :estado'
+            . ($hash ? ', password = :password' : '')
+            . ' WHERE id = :id';
+
+        $params = [
+            ':nombre'   => $datos['nombre'],
+            ':apellido' => $datos['apellido'],
+            ':email'    => $datos['email'],
+            ':telefono' => $datos['telefono'] ?: null,
+            ':rol'      => $datos['rol'],
+            ':estado'   => $datos['estado'],
+            ':id'       => $id,
         ];
+        if ($hash) {
+            $params[':password'] = $hash;
+        }
+
+        return $this->db->prepare($sql)->execute($params);
     }
 
-    public static function actualizar(int $id, array $d): void
+    /** Activa o desactiva una cuenta (módulo de usuarios) */
+    public function cambiarEstado(int $id, string $estado): bool
     {
-        $t = &DemoStore::tabla('usuarios');
-        foreach ($t as &$u) {
-            if ($u['id'] === $id) {
-                $u['nombre'] = trim($d['nombre']); $u['documento'] = trim($d['documento']);
-                $u['correo'] = trim($d['correo']); $u['rol'] = $d['rol'];
-                if (!empty($d['clave'])) $u['clave'] = password_hash($d['clave'], PASSWORD_DEFAULT);
-            }
+        return $this->db->prepare('UPDATE usuarios SET estado = ? WHERE id = ?')->execute([$estado, $id]);
+    }
+
+    /** Elimina un usuario solo si no tiene préstamos activos (integridad RNF-06) */
+    public function eliminar(int $id): bool
+    {
+        try {
+            return $this->db->prepare('DELETE FROM usuarios WHERE id = ?')->execute([$id]);
+        } catch (PDOException) {
+            return false; // Restricción de llave foránea: tiene historial de préstamos
         }
     }
 
-    /** Activar / desactivar usuario (módulo usuarios del alcance). */
-    public static function cambiarEstado(int $id): void
+    public function tienePrestamosActivos(int $id): bool
     {
-        $t = &DemoStore::tabla('usuarios');
-        foreach ($t as &$u) {
-            if ($u['id'] === $id) $u['estado'] = $u['estado'] === 'Activo' ? 'Inactivo' : 'Activo';
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM prestamos WHERE usuario_id = ? AND estado = 'Activo'");
+        $stmt->execute([$id]);
+        return $stmt->fetchColumn() > 0;
+    }
+
+    /* ── Privados ── */
+
+    /** Construye la cláusula WHERE dinámica con los filtros seguros */
+    private function filtros(string $q, string $rol, string $estado): array
+    {
+        $condiciones = [];
+        $params      = [];
+
+        if ($q !== '') {
+            $condiciones[]       = '(nombre LIKE :q OR apellido LIKE :q OR email LIKE :q OR CONCAT(nombre, " ", apellido) LIKE :q)';
+            $params[':q']        = '%' . $q . '%';
         }
+        if ($rol !== '') {
+            $condiciones[]       = 'rol = :rol';
+            $params[':rol']      = $rol;
+        }
+        if ($estado !== '') {
+            $condiciones[]       = 'estado = :estado';
+            $params[':estado']   = $estado;
+        }
+
+        $where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
+        return [$where, $params];
     }
 }

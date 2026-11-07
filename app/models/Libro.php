@@ -1,87 +1,189 @@
 <?php
-/** Modelo Libro — RF-06, RF-07, RF-08, RF-09, RF-13 */
-class Libro
+declare(strict_types=1);
+
+/**
+ * BIBLIOTECA CORA · Modelo Libro (RF-06 … RF-09, RF-13)
+ * Gestión del catálogo y de la cantidad de ejemplares disponibles.
+ */
+
+final class Libro
 {
-    public static function todos(string $q = '', string $categoria = ''): array
+    public function __construct(private PDO $db)
     {
-        $libros = DemoStore::tabla('libros');
-        $q = mb_strtolower(trim($q));
-        return array_values(array_filter($libros, function ($l) use ($q, $categoria) {
-            $okQ = $q === '' || str_contains(mb_strtolower($l['titulo'] . ' ' . $l['autor'] . ' ' . $l['categoria']), $q);
-            $okC = $categoria === '' || $l['categoria'] === $categoria;
-            return $okQ && $okC;
-        }));
     }
 
-    public static function buscar(int $id): ?array
+    public static function instancia(): self
     {
-        foreach (DemoStore::tabla('libros') as $l) {
-            if ($l['id'] === $id) return $l;
+        return new self(Database::getConnection());
+    }
+
+    /**
+     * Listado del catálogo con búsqueda y filtros (RF-07, RF-08).
+     *
+     * @param string $q       Búsqueda por título, autor o ISBN
+     * @param int    $categoriaId  Filtro por categoría (0 = todas)
+     */
+    public function buscarTodos(string $q = '', int $categoriaId = 0, int $pagina = 1, int $porPagina = REGISTROS_POR_PAGINA): array
+    {
+        [$where, $params] = $this->filtros($q, $categoriaId);
+        $offset = max(0, ($pagina - 1) * $porPagina);
+
+        $sql = 'SELECT l.*, c.nombre AS categoria
+                FROM libros l
+                INNER JOIN categorias c ON c.id = l.categoria_id ' .
+                $where . '
+                ORDER BY l.titulo ASC
+                LIMIT :limite OFFSET :offset';
+
+        $stmt = $this->db->prepare($sql);
+        foreach ($params as $k => $v) {
+            $stmt->bindValue($k, $v);
         }
-        return null;
+        $stmt->bindValue(':limite', $porPagina, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll();
     }
 
-    public static function categorias(): array
+    /** Total de libros según los mismos filtros (paginación) */
+    public function contar(string $q = '', int $categoriaId = 0): int
     {
-        return ['Novela', 'Ciencia ficción', 'Infantil', 'Clásico', 'Ciencia', 'Historia', 'Tecnología', 'Literatura', 'Cuentos'];
+        [$where, $params] = $this->filtros($q, $categoriaId);
+        $stmt = $this->db->prepare(
+            'SELECT COUNT(*) FROM libros l INNER JOIN categorias c ON c.id = l.categoria_id ' . $where
+        );
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn();
     }
 
-    public static function validar(array $d): array
+    /** Ficha técnica completa del libro (módulo 7) */
+    public function buscarPorId(int $id): ?array
     {
-        $errores = [];
-        if (mb_strlen(trim($d['titulo'] ?? '')) < 2)  $errores[] = 'El título es obligatorio.';
-        if (mb_strlen(trim($d['autor'] ?? '')) < 2)   $errores[] = 'El autor es obligatorio.';
-        if (!in_array($d['categoria'] ?? '', self::categorias(), true)) $errores[] = 'Selecciona una categoría válida.';
-        if (!preg_match('/^[0-9\-Xx]{10,17}$/', trim($d['isbn'] ?? ''))) $errores[] = 'El ISBN debe tener entre 10 y 17 caracteres (números y guiones).';
-        if (!ctype_digit((string)($d['ejemplares'] ?? '')) || (int)$d['ejemplares'] < 1) $errores[] = 'La cantidad de ejemplares debe ser un número mayor a 0.';
-        return $errores;
+        $stmt = $this->db->prepare(
+            'SELECT l.*, c.nombre AS categoria
+             FROM libros l
+             INNER JOIN categorias c ON c.id = l.categoria_id
+             WHERE l.id = ?'
+        );
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
     }
 
-    public static function crear(array $d): void
+    /** RF-06 · Registra un libro nuevo */
+    public function crear(array $datos): int
     {
-        $t = &DemoStore::tabla('libros');
-        $n = (int) $d['ejemplares'];
-        $t[] = [
-            'id' => DemoStore::siguienteId('libros'),
-            'titulo' => trim($d['titulo']), 'autor' => trim($d['autor']),
-            'categoria' => $d['categoria'], 'isbn' => trim($d['isbn']),
-            'ejemplares' => $n, 'disponibles' => $n,
-            'descripcion' => trim($d['descripcion'] ?? ''),
-        ];
+        $stmt = $this->db->prepare(
+            'INSERT INTO libros (titulo, autor, categoria_id, isbn, editorial, anio_publicacion, sinopsis, portada, cantidad_total, cantidad_disponible)
+             VALUES (:titulo, :autor, :categoria_id, :isbn, :editorial, :anio, :sinopsis, :portada, :total, :disponible)'
+        );
+        $stmt->execute([
+            ':titulo'      => $datos['titulo'],
+            ':autor'       => $datos['autor'],
+            ':categoria_id'=> $datos['categoria_id'],
+            ':isbn'        => $datos['isbn'],
+            ':editorial'   => $datos['editorial'] ?: null,
+            ':anio'        => $datos['anio_publicacion'] ?: null,
+            ':sinopsis'    => $datos['sinopsis'] ?: null,
+            ':portada'     => $datos['portada'] ?: null,
+            ':total'       => $datos['cantidad_total'],
+            ':disponible'  => $datos['cantidad_total'], // Al registrarse, todos los ejemplares están disponibles
+        ]);
+        return (int) $this->db->lastInsertId();
     }
 
-    public static function actualizar(int $id, array $d): void
+    /** RF-09 · Actualiza un libro (no reduce la disponibilidad por debajo de los préstamos activos) */
+    public function actualizar(int $id, array $datos): bool
     {
-        $t = &DemoStore::tabla('libros');
-        foreach ($t as &$l) {
-            if ($l['id'] === $id) {
-                $prestados = $l['ejemplares'] - $l['disponibles'];
-                $nuevo = max((int) $d['ejemplares'], $prestados); // no bajar de los prestados
-                $l['titulo'] = trim($d['titulo']); $l['autor'] = trim($d['autor']);
-                $l['categoria'] = $d['categoria']; $l['isbn'] = trim($d['isbn']);
-                $l['descripcion'] = trim($d['descripcion'] ?? '');
-                $l['ejemplares'] = $nuevo;
-                $l['disponibles'] = $nuevo - $prestados;
-            }
+        // Préstamos activos que mantienen ejemplares fuera de la biblioteca
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM prestamos WHERE libro_id = ? AND estado = 'Activo'");
+        $stmt->execute([$id]);
+        $prestados  = (int) $stmt->fetchColumn();
+        $disponible = max(0, $datos['cantidad_total'] - $prestados);
+
+        $sql = 'UPDATE libros
+                SET titulo = :titulo, autor = :autor, categoria_id = :categoria_id, isbn = :isbn,
+                    editorial = :editorial, anio_publicacion = :anio, sinopsis = :sinopsis,
+                    portada = :portada, cantidad_total = :total, cantidad_disponible = :disponible
+                WHERE id = :id';
+
+        return $this->db->prepare($sql)->execute([
+            ':titulo'       => $datos['titulo'],
+            ':autor'        => $datos['autor'],
+            ':categoria_id' => $datos['categoria_id'],
+            ':isbn'         => $datos['isbn'],
+            ':editorial'    => $datos['editorial'] ?: null,
+            ':anio'         => $datos['anio_publicacion'] ?: null,
+            ':sinopsis'     => $datos['sinopsis'] ?: null,
+            ':portada'      => $datos['portada'] ?: null,
+            ':total'        => $datos['cantidad_total'],
+            ':disponible'   => $disponible,
+            ':id'           => $id,
+        ]);
+    }
+
+    /** Elimina un libro solo si no tiene préstamos registrados (integridad RNF-06) */
+    public function eliminar(int $id): bool
+    {
+        try {
+            return $this->db->prepare('DELETE FROM libros WHERE id = ?')->execute([$id]);
+        } catch (PDOException) {
+            return false; // FK: el libro tiene historial de préstamos
         }
     }
 
-    /** Solo se elimina si no tiene préstamos activos (RNF-06 integridad). */
-    public static function eliminar(int $id): bool
+    public function tienePrestamos(int $id): bool
     {
-        foreach (DemoStore::tabla('prestamos') as $p) {
-            if ($p['libro_id'] === $id && $p['estado'] === 'Activo') return false;
-        }
-        $t = &DemoStore::tabla('libros');
-        $t = array_values(array_filter($t, fn($l) => $l['id'] !== $id));
-        return true;
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM prestamos WHERE libro_id = ?');
+        $stmt->execute([$id]);
+        return $stmt->fetchColumn() > 0;
     }
 
-    public static function ajustarDisponibles(int $id, int $delta): void
+    /** Libros con ejemplares disponibles para el modal de préstamo (RN-01) */
+    public function disponiblesParaPrestamo(): array
     {
-        $t = &DemoStore::tabla('libros');
-        foreach ($t as &$l) {
-            if ($l['id'] === $id) $l['disponibles'] += $delta;
+        return $this->db->query(
+            'SELECT id, titulo, autor, cantidad_disponible
+             FROM libros
+             WHERE cantidad_disponible > 0
+             ORDER BY titulo'
+        )->fetchAll();
+    }
+
+    /** ── Estadísticas para el dashboard ── */
+
+    public function contarTodos(): int
+    {
+        return (int) $this->db->query('SELECT COUNT(*) FROM libros')->fetchColumn();
+    }
+
+    public function totalEjemplares(): int
+    {
+        return (int) $this->db->query('SELECT COALESCE(SUM(cantidad_total), 0) FROM libros')->fetchColumn();
+    }
+
+    public function totalDisponibles(): int
+    {
+        return (int) $this->db->query('SELECT COALESCE(SUM(cantidad_disponible), 0) FROM libros')->fetchColumn();
+    }
+
+    /* ── Privados ── */
+
+    private function filtros(string $q, int $categoriaId): array
+    {
+        $condiciones = [];
+        $params      = [];
+
+        if ($q !== '') {
+            $condiciones[] = '(l.titulo LIKE :q OR l.autor LIKE :q OR l.isbn LIKE :q)';
+            $params[':q']  = '%' . $q . '%';
         }
+        if ($categoriaId > 0) {
+            $condiciones[]           = 'l.categoria_id = :cat';
+            $params[':cat']          = $categoriaId;
+        }
+
+        $where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
+        return [$where, $params];
     }
 }

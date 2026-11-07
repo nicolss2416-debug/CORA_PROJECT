@@ -1,59 +1,49 @@
 <?php
-/** Reportes — RF-14 (pantalla 9) */
-class ReportesController extends BaseController
+declare(strict_types=1);
+
+/**
+ * BIBLIOTECA CORA · Controlador de reportes (RF-14)
+ * Panel analítico con filtros por rango de fechas, métricas y gráficos.
+ */
+
+final class ReportesController extends Controller
 {
-    private const TIPOS = [
-        'prestamos' => 'Todos los préstamos',
-        'Activo'    => 'Préstamos activos',
-        'Vencido'   => 'Préstamos vencidos',
-        'Devuelto'  => 'Devoluciones',
-    ];
-
-    private function filtrar(): array
-    {
-        $tipo  = $_GET['tipo'] ?? 'prestamos';
-        $desde = $_GET['desde'] ?? '';
-        $hasta = $_GET['hasta'] ?? '';
-        $estado = $tipo === 'prestamos' ? '' : $tipo;
-
-        $filas = Prestamo::todos($estado);
-        if ($desde) $filas = array_filter($filas, fn($p) => $p['fecha_prestamo'] >= $desde);
-        if ($hasta) $filas = array_filter($filas, fn($p) => $p['fecha_prestamo'] <= $hasta);
-        return [array_values($filas), $tipo, $desde, $hasta];
-    }
-
+    /** GET /reportes?desde=YYYY-MM-DD&hasta=YYYY-MM-DD */
     public function index(): void
     {
-        $this->requerirRol('Administrador', 'Bibliotecario');
-        [$filas, $tipo, $desde, $hasta] = $this->filtrar();
+        Auth::requireRole(['Administrador', 'Bibliotecario'], 'Los reportes están disponibles para el personal de la biblioteca.');
 
-        layout('reportes/index', [
-            'titulo'  => 'Reportes',
-            'filas'   => $filas,
-            'tipo'    => $tipo,
-            'desde'   => $desde,
-            'hasta'   => $hasta,
-            'tipos'   => self::TIPOS,
-            'conteos' => Prestamo::conteos(),
-            'porCategoria' => Prestamo::porCategoria(),
-            'extraJs' => ['https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js', 'public/js/reportes.js'],
-        ]);
-    }
+        /* Rango de fechas: por defecto, los últimos 30 días */
+        $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-29 days'));
+        $hasta = $_GET['hasta'] ?? date('Y-m-d');
 
-    /** Exporta el reporte filtrado a CSV (se abre en Excel). */
-    public function exportar(): void
-    {
-        $this->requerirRol('Administrador', 'Bibliotecario');
-        [$filas] = $this->filtrar();
-
-        header('Content-Type: text/csv; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="reporte_cora_' . date('Ymd') . '.csv"');
-        $out = fopen('php://output', 'w');
-        fwrite($out, "\xEF\xBB\xBF"); // BOM para tildes en Excel
-        fputcsv($out, ['ID', 'Lector', 'Libro', 'Fecha préstamo', 'Fecha prevista', 'Fecha devolución', 'Estado'], ';');
-        foreach ($filas as $p) {
-            fputcsv($out, [$p['id'], $p['lector'], $p['libro'], $p['fecha_prestamo'], $p['fecha_prevista'], $p['fecha_devolucion'] ?? '', $p['estado_visual']], ';');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $desde) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $hasta)) {
+            Flash::warning('El rango de fechas indicado no es válido; se mostraron los últimos 30 días.');
+            $desde = date('Y-m-d', strtotime('-29 days'));
+            $hasta = date('Y-m-d');
         }
-        fclose($out);
+        if ($desde > $hasta) {
+            Flash::warning('La fecha inicial no puede ser posterior a la fecha final; se intercambiaron.');
+            [$desde, $hasta] = [$hasta, $desde];
+        }
+
+        $libroModelo    = Libro::instancia();
+        $usuarioModelo  = Usuario::instancia();
+        $prestamoModelo = Prestamo::instancia();
+
+        $this->view('reportes/index', [
+            'pageTitle'  => 'Reportes y estadísticas',
+            'desde'      => $desde,
+            'hasta'      => $hasta,
+            'reporte'    => $prestamoModelo->reportePorRango($desde, $hasta),
+            'inventario' => [
+                'titulos'     => $libroModelo->contarTodos(),
+                'ejemplares'  => $libroModelo->totalEjemplares(),
+                'disponibles' => $libroModelo->totalDisponibles(),
+                'usuarios'    => $usuarioModelo->contarTodos(),
+                'lectores'    => $usuarioModelo->contarTodos(soloActivos: true),
+            ],
+            'porCategoria' => Categoria::instancia()->conteoLibros(),
+        ]);
     }
 }

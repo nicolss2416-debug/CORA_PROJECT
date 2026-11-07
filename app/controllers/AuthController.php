@@ -1,45 +1,58 @@
 <?php
-/** Autenticación — RF-01 Iniciar sesión, RF-02 Cerrar sesión */
-class AuthController extends BaseController
-{
-    public function index(): void
-    {
-        redirigir('auth/login');
-    }
+declare(strict_types=1);
 
+/**
+ * BIBLIOTECA CORA · Controlador de autenticación
+ * RF-01 Iniciar sesión · RF-02 Cerrar sesión
+ */
+
+final class AuthController extends Controller
+{
+    /** GET /login → formulario · POST /login → validar credenciales */
     public function login(): void
     {
-        if (esta_logueado()) redirigir('dashboard');
-
-        if ($this->esPost()) {
-            $correo = trim($_POST['correo'] ?? '');
-            $clave  = $_POST['clave'] ?? '';
-
-            if (!filter_var($correo, FILTER_VALIDATE_EMAIL) || $clave === '') {
-                flash('warning', 'Ingresa un correo válido y tu contraseña.');
-                redirigir('auth/login');
-            }
-
-            $usuario = Usuario::autenticar($correo, $clave);
-            if ($usuario) {
-                session_regenerate_id(true);
-                unset($usuario['clave']);          // nunca guardar la clave en sesión
-                $_SESSION['usuario'] = $usuario;
-                redirigir('dashboard');
-            }
-            flash('error', 'El correo o la contraseña son incorrectos.');
-            redirigir('auth/login');
+        if (Auth::check()) {
+            redirect('dashboard');
         }
 
-        vista_simple('auth/login', ['titulo' => 'Iniciar sesión']);
+        $errores = [];
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $email    = trim($_POST['email'] ?? '');
+            $password = $_POST['password'] ?? '';
+
+            /* Validación del formulario */
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $errores['email'] = 'Ingrese un correo electrónico válido.';
+            }
+            if ($password === '') {
+                $errores['password'] = 'Ingrese su contraseña.';
+            }
+
+            if (!$errores) {
+                [$ok, $mensaje, $usuario] = Auth::attempt($email, $password);
+
+                if ($ok) {
+                    Auth::login($usuario);            // Crea la sesión
+                    Flash::success($mensaje);
+                    redirect('dashboard');            // Acceso según rol (controlado en cada módulo)
+                }
+
+                Flash::error($mensaje);               // Credenciales inválidas o cuenta inactiva
+            }
+
+            Flash::setOld(['email' => $email]);       // Repoblar el correo
+        }
+
+        $this->view('auth/login', ['errores' => $errores], conLayout: false);
     }
 
+    /** POST /logout → destruye la sesión (RF-02) */
     public function logout(): void
     {
-        $_SESSION = [];
-        session_destroy();
+        Auth::logout();
         session_start();
-        flash('info', 'Cerraste sesión correctamente.');
-        redirigir('auth/login');
+        Flash::info('Sesión finalizada correctamente. ¡Hasta pronto!');
+        redirect('login');
     }
 }
