@@ -162,8 +162,12 @@ final class Usuario
         $params      = [];
 
         if ($q !== '') {
-            $condiciones[]       = '(nombre LIKE :q OR apellido LIKE :q OR email LIKE :q OR CONCAT(nombre, " ", apellido) LIKE :q)';
-            $params[':q']        = '%' . $q . '%';
+            $valor         = '%' . $q . '%';
+            $condiciones[] = '(nombre LIKE :q1 OR apellido LIKE :q2 OR email LIKE :q3 OR CONCAT(nombre, " ", apellido) LIKE :q4)';
+            $params[':q1'] = $valor;
+            $params[':q2'] = $valor;
+            $params[':q3'] = $valor;
+            $params[':q4'] = $valor;
         }
         if ($rol !== '') {
             $condiciones[]       = 'rol = :rol';

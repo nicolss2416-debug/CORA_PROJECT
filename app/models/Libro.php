@@ -175,8 +175,13 @@ final class Libro
         $params      = [];
 
         if ($q !== '') {
-            $condiciones[] = '(l.titulo LIKE :q OR l.autor LIKE :q OR l.isbn LIKE :q)';
-            $params[':q']  = '%' . $q . '%';
+            /* Placeholders distintos por columna: con EMULATE_PREPARES=false
+             * cada marcador con nombre solo puede usarse una vez */
+            $condiciones[] = '(l.titulo LIKE :q1 OR l.autor LIKE :q2 OR l.isbn LIKE :q3)';
+            $valor         = '%' . $q . '%';
+            $params[':q1'] = $valor;
+            $params[':q2'] = $valor;
+            $params[':q3'] = $valor;
         }
         if ($categoriaId > 0) {
             $condiciones[]           = 'l.categoria_id = :cat';

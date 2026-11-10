@@ -27,6 +27,9 @@ final class Database
 
             try {
                 self::$instancia = new PDO($dsn, DB_USER, DB_PASS, $opciones);
+                /* Alinea la zona horaria del servidor de BD con la de PHP,
+                 * para que CURDATE()/NOW() coincidan con la fecha de la biblioteca */
+                self::$instancia->exec("SET time_zone = '" . date('P') . "'");
             } catch (PDOException $e) {
                 error_log('[CORA] Error de conexión BD: ' . $e->getMessage());
                 http_response_code(500);

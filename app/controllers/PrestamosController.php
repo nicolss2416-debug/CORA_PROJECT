@@ -15,8 +15,10 @@ final class PrestamosController extends Controller
         $esLector = Auth::es('Lector');
         $lectorId = $esLector ? Auth::id() : 0;
 
-        $estado = in_array($_GET['estado'] ?? 'Todos', ['Todos', 'Activo', 'Vencido', 'Devuelto'], true)
-            ? $_GET['estado'] : 'Todos';
+        $estado = $_GET['estado'] ?? 'Todos';
+        if (!in_array($estado, ['Todos', 'Activo', 'Vencido', 'Devuelto'], true)) {
+            $estado = 'Todos';
+        }
         $q      = trim($_GET['q'] ?? '');
         $pagina = max(1, (int) ($_GET['pagina'] ?? 1));
 

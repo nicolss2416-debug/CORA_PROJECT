@@ -38,7 +38,7 @@ $rolActual = Auth::rol();
                class="cora-nav-link <?= $slugActivo === $item['slug'] ? 'activo' : '' ?>">
                 <i class="bi <?= $item['icono'] ?>"></i>
                 <span><?= e($item['etiqueta']) ?></span>
-                <?php if ($item['slug'] === 'prestamos' && isset($contadores) && !$esLector && $contadores['vencidos'] > 0): ?>
+                <?php if ($item['slug'] === 'prestamos' && isset($contadores) && !($esLector ?? false) && $contadores['vencidos'] > 0): ?>
                     <span class="badge cora-badge cora-badge-vencido ms-auto"><?= (int) $contadores['vencidos'] ?></span>
                 <?php endif; ?>
             </a>

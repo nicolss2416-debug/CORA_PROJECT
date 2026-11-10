@@ -72,16 +72,16 @@ $parametros      = array_slice($segmentos, 2);
  * 5. Tabla de rutas del sistema
  * ──────────────────────────────────────────────── */
 $rutas = [
-    // slug => [Controlador, requiere sesión iniciada]
-    'login'        => ['AuthController', false],
-    'logout'       => ['AuthController', true],
-    'dashboard'    => ['DashboardController', true],
-    'inicio'       => ['DashboardController', true],
-    'libros'       => ['LibrosController', true],
-    'usuarios'     => ['UsuariosController', true],
-    'prestamos'    => ['PrestamosController', true],
-    'devoluciones' => ['DevolucionesController', true],
-    'reportes'     => ['ReportesController', true],
+    // slug => [Controlador, método por defecto, requiere sesión iniciada]
+    'login'        => ['AuthController', 'login',  false],
+    'logout'       => ['AuthController', 'logout', true],
+    'dashboard'    => ['DashboardController', 'index', true],
+    'inicio'       => ['DashboardController', 'index', true],
+    'libros'       => ['LibrosController', 'index', true],
+    'usuarios'     => ['UsuariosController', 'index', true],
+    'prestamos'    => ['PrestamosController', 'index', true],
+    'devoluciones' => ['DevolucionesController', 'index', true],
+    'reportes'     => ['ReportesController', 'index', true],
 ];
 
 /* ────────────────────────────────────────────────
@@ -92,7 +92,10 @@ try {
         throw new RuntimeException('Página no encontrada', 404);
     }
 
-    [$clase, $requiereSesion] = $rutas[$controladorSlug];
+    [$clase, $metodoPorDefecto, $requiereSesion] = $rutas[$controladorSlug];
+    if (empty($segmentos[1])) {
+        $metodo = $metodoPorDefecto;
+    }
 
     /* Protección CSRF para todas las peticiones POST (RNF-02) */
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && !Auth::verifyCsrf($_POST['_token'] ?? '')) {

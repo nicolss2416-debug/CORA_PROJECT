@@ -28,17 +28,18 @@ final class Prestamo
 
     /* ══════════════ CONSULTAS (RF-12) ══════════════ */
 
-    /** SELECT base con joins; "estado_actual" deriva el Vencido al vuelo */
+    /** SELECT base con joins; "estado_actual" deriva el Vencido al vuelo
+     *  Nota: con EMULATE_PREPARES=false cada placeholder solo puede usarse una vez. */
     private const SELECT_BASE =
         'SELECT p.id, p.fecha_prestamo, p.fecha_devolucion_esperada, p.fecha_devolucion_real,
                 p.estado, p.observaciones,
                 l.id AS libro_id, l.titulo AS libro_titulo, l.autor AS libro_autor, l.portada,
                 u.id AS lector_id, u.nombre AS lector_nombre, u.apellido AS lector_apellido, u.email AS lector_email,
                 CASE
-                    WHEN p.estado = "Activo" AND p.fecha_devolucion_esperada < :hoy1 THEN "Vencido"
+                    WHEN p.estado = "Activo" AND p.fecha_devolucion_esperada < :hoy_estado THEN "Vencido"
                     ELSE p.estado
                 END AS estado_actual,
-                DATEDIFF(p.fecha_devolucion_esperada, :hoy2) AS dias_restantes
+                DATEDIFF(p.fecha_devolucion_esperada, :hoy_dias) AS dias_restantes
          FROM prestamos p
          INNER JOIN libros l   ON l.id = p.libro_id
          INNER JOIN usuarios u ON u.id = p.usuario_id';
@@ -55,11 +56,12 @@ final class Prestamo
         [$where, $params] = $this->filtros($estado, $q, $lectorId);
         $offset = max(0, ($pagina - 1) * $porPagina);
 
-        $sql = str_replace(':hoy2', ':hoy1', self::SELECT_BASE) . ' ' . $where .
+        $sql = self::SELECT_BASE . ' ' . $where .
                ' ORDER BY p.fecha_prestamo DESC, p.id DESC LIMIT :limite OFFSET :offset';
 
         $stmt = $this->db->prepare($sql);
-        $stmt->bindValue(':hoy1', $this->hoy);
+        $stmt->bindValue(':hoy_estado', $this->hoy);
+        $stmt->bindValue(':hoy_dias', $this->hoy);
         foreach ($params as $k => $v) {
             $stmt->bindValue($k, $v);
         }
@@ -100,8 +102,12 @@ final class Prestamo
             $condiciones[]     = "p.estado = 'Devuelto'";
         }
         if ($q !== '') {
-            $condiciones[]     = '(l.titulo LIKE :q OR l.autor LIKE :q OR u.nombre LIKE :q OR u.apellido LIKE :q)';
-            $params[':q']      = '%' . $q . '%';
+            $valor         = '%' . $q . '%';
+            $condiciones[] = '(l.titulo LIKE :q1 OR l.autor LIKE :q2 OR u.nombre LIKE :q3 OR u.apellido LIKE :q4)';
+            $params[':q1'] = $valor;
+            $params[':q2'] = $valor;
+            $params[':q3'] = $valor;
+            $params[':q4'] = $valor;
         }
         if ($lectorId > 0) {
             $condiciones[]     = 'p.usuario_id = :lector';
@@ -115,9 +121,10 @@ final class Prestamo
     /** Detalle completo de un préstamo */
     public function buscarPorId(int $id): ?array
     {
-        $sql  = str_replace(':hoy2', ':hoy1', self::SELECT_BASE) . ' WHERE p.id = :id';
+        $sql  = self::SELECT_BASE . ' WHERE p.id = :id';
         $stmt = $this->db->prepare($sql);
-        $stmt->bindValue(':hoy1', $this->hoy);
+        $stmt->bindValue(':hoy_estado', $this->hoy);
+        $stmt->bindValue(':hoy_dias', $this->hoy);
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetch() ?: null;
@@ -133,11 +140,12 @@ final class Prestamo
     public function ultimos(int $cantidad = 5, int $lectorId = 0): array
     {
         $extra = $lectorId > 0 ? ' WHERE p.usuario_id = ' . (int) $lectorId : '';
-        $sql   = str_replace(':hoy2', ':hoy1', self::SELECT_BASE) . $extra .
+        $sql   = self::SELECT_BASE . $extra .
                  ' ORDER BY p.fecha_prestamo DESC, p.id DESC LIMIT :limite';
 
         $stmt = $this->db->prepare($sql);
-        $stmt->bindValue(':hoy1', $this->hoy);
+        $stmt->bindValue(':hoy_estado', $this->hoy);
+        $stmt->bindValue(':hoy_dias', $this->hoy);
         $stmt->bindValue(':limite', $cantidad, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();

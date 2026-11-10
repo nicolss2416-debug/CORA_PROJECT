@@ -11,9 +11,12 @@ define('APP_TAGLINE', 'Sistema Web de Gestión Bibliotecaria');
 define('APP_VERSION', '1.0.0');
 define('APP_PATH',    dirname(__DIR__));
 
-/* ── Conexión a base de datos MySQL (valores por defecto de XAMPP) ── */
+/* ── Conexión a base de datos MySQL ──
+ * Puerto 3307: MariaDB de XAMPP dedicada a este proyecto
+ * (el puerto 3306 está ocupado por el servicio Windows MySQL80).
+ * Para volver al 3306: cambiar DB_PORT y ajustar usuario/contraseña. */
 define('DB_HOST',    '127.0.0.1');
-define('DB_PORT',    '3306');
+define('DB_PORT',    '3307');
 define('DB_NAME',    'biblioteca_cora');
 define('DB_USER',    'root');
 define('DB_PASS',    '');
